@@ -1,11 +1,20 @@
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.routers import comments, tickets, users
 
 app = FastAPI(title="Ticket API", version="0.1.0")
+
+# Day 11: allow the ticket-ui React app (Vite dev server on port 5174) to call this API.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5174", "http://127.0.0.1:5174"],
+    allow_methods=["GET", "POST", "PATCH", "DELETE"],
+    allow_headers=["Content-Type"],
+)
 
 app.include_router(users.router)
 app.include_router(tickets.router)
