@@ -23,7 +23,7 @@ class UserOut(BaseModel):
 
 class Token(BaseModel):
     access_token: str
-    token_type: str = "bearer"  # nosec B105 - OAuth2 token type name, not a password
+    token_type: str = "bearer"  # OAuth2 token type name, not a password
 
 
 class TicketCreate(BaseModel):

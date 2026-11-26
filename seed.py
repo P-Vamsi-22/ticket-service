@@ -60,7 +60,8 @@ def seed() -> None:
         print("Set SEED_PASSWORD (8+ chars) in .env first.")
         sys.exit(1)
 
-    rng = random.Random(42)  # nosec B311 - only picks fake demo data, not used for security
+    # random (not secrets) is fine here: it only picks fake demo data, never anything security-related.
+    rng = random.Random(42)  # nosec B311
     with Session(engine) as db:
         if db.scalar(select(User).limit(1)) is not None:
             print("Database already seeded, skipping.")
