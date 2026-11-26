@@ -20,12 +20,25 @@ class TicketPriority(str, enum.Enum):
     HIGH = "HIGH"
 
 
+class UserRole(str, enum.Enum):
+    EMPLOYEE = "EMPLOYEE"  # sees and edits only their own tickets
+    AGENT = "AGENT"  # support agent: sees and edits all tickets, can delete
+
+
 class User(Base):
     __tablename__ = "users"
 
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
+    # Argon2 hash only, never the password. NULL = account cannot log in (e.g. created before Day 12).
+    password_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    role: Mapped[UserRole] = mapped_column(
+        Enum(UserRole, native_enum=False, length=20),
+        default=UserRole.EMPLOYEE,
+        server_default=UserRole.EMPLOYEE.value,
+        nullable=False,
+    )
 
     tickets: Mapped[list["Ticket"]] = relationship(back_populates="creator")
 

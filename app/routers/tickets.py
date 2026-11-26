@@ -3,6 +3,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.deps import ensure_ticket_access, get_current_user, is_agent, require_agent
 from app.models import Ticket, TicketPriority, TicketStatus, User
 from app.schemas import TicketCreate, TicketList, TicketOut, TicketUpdate
 
@@ -26,14 +27,20 @@ def get_ticket_or_404(ticket_id: int, db: Session) -> Ticket:
     return ticket
 
 
+def get_accessible_ticket(ticket_id: int, db: Session, user: User) -> Ticket:
+    """404 if it doesn't exist, 403 if it isn't yours (and you're not an agent)."""
+    ticket = get_ticket_or_404(ticket_id, db)
+    ensure_ticket_access(ticket, user)
+    return ticket
+
+
 @router.post("", response_model=TicketOut, status_code=status.HTTP_201_CREATED)
-def create_ticket(payload: TicketCreate, db: Session = Depends(get_db)):
-    if db.get(User, payload.created_by) is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"User {payload.created_by} not found",
-        )
-    ticket = Ticket(**payload.model_dump())
+def create_ticket(
+    payload: TicketCreate,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    ticket = Ticket(**payload.model_dump(), created_by=user.id)  # owner comes from the token
     db.add(ticket)
     db.commit()
     db.refresh(ticket)
@@ -47,9 +54,13 @@ def list_tickets(
     status_filter: TicketStatus | None = Query(default=None, alias="status"),
     priority: TicketPriority | None = None,
     db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
 ):
     stmt = select(Ticket)
     count_stmt = select(func.count()).select_from(Ticket)
+    if not is_agent(user):  # employees only ever see their own tickets
+        stmt = stmt.where(Ticket.created_by == user.id)
+        count_stmt = count_stmt.where(Ticket.created_by == user.id)
     if status_filter is not None:
         stmt = stmt.where(Ticket.status == status_filter)
         count_stmt = count_stmt.where(Ticket.status == status_filter)
@@ -67,15 +78,22 @@ def list_tickets(
 
 
 @router.get("/{ticket_id}", response_model=TicketOut)
-def get_ticket(ticket_id: int, db: Session = Depends(get_db)):
-    return get_ticket_or_404(ticket_id, db)
+def get_ticket(
+    ticket_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    return get_accessible_ticket(ticket_id, db, user)
 
 
 @router.patch("/{ticket_id}", response_model=TicketOut)
 def update_ticket(
-    ticket_id: int, payload: TicketUpdate, db: Session = Depends(get_db)
+    ticket_id: int,
+    payload: TicketUpdate,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
 ):
-    ticket = get_ticket_or_404(ticket_id, db)
+    ticket = get_accessible_ticket(ticket_id, db, user)
     updates = payload.model_dump(exclude_unset=True)
     if "status" in updates:
         new_status = updates["status"]
@@ -95,7 +113,11 @@ def update_ticket(
 
 
 @router.delete("/{ticket_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_ticket(ticket_id: int, db: Session = Depends(get_db)):
+def delete_ticket(
+    ticket_id: int,
+    db: Session = Depends(get_db),
+    _agent: User = Depends(require_agent),  # role check: only agents may delete
+):
     ticket = get_ticket_or_404(ticket_id, db)
     db.delete(ticket)
     db.commit()

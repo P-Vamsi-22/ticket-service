@@ -1,13 +1,20 @@
-"""Seed the database with fake data. Safe to re-run (skips if users exist)."""
+"""Seed the database with fake data. Safe to re-run (skips if users exist).
 
+Day 12: every seeded user can log in with the password in SEED_PASSWORD (.env).
+user0@example.com is an AGENT, user1..user7 are EMPLOYEES.
+"""
+
+import os
 import random
 import sys
 
 from sqlalchemy import inspect, select
 from sqlalchemy.orm import Session
 
-from app.database import SessionLocal, engine
-from app.models import Comment, Ticket, TicketPriority, TicketStatus, User
+from app import config  # noqa: F401 - loads .env
+from app.database import engine
+from app.models import Comment, Ticket, TicketPriority, TicketStatus, User, UserRole
+from app.security import hash_password
 
 FIRST_NAMES = ["Ada", "Grace", "Alan", "Edsger", "Barbara", "Donald", "Radia", "Linus"]
 LAST_NAMES = ["Lovelace", "Hopper", "Turing", "Dijkstra", "Liskov", "Knuth", "Perlman", "Torvalds"]
@@ -48,14 +55,24 @@ def seed() -> None:
         print("Run 'uv run alembic upgrade head' first.")
         sys.exit(1)
 
-    rng = random.Random(42)
+    seed_password = os.environ.get("SEED_PASSWORD", "")
+    if len(seed_password) < 8:
+        print("Set SEED_PASSWORD (8+ chars) in .env first.")
+        sys.exit(1)
+
+    rng = random.Random(42)  # nosec B311 - only picks fake demo data, not used for security
     with Session(engine) as db:
         if db.scalar(select(User).limit(1)) is not None:
             print("Database already seeded, skipping.")
             return
 
         users = [
-            User(name=f"{rng.choice(FIRST_NAMES)} {rng.choice(LAST_NAMES)}", email=f"user{i}@example.com")
+            User(
+                name=f"{rng.choice(FIRST_NAMES)} {rng.choice(LAST_NAMES)}",
+                email=f"user{i}@example.com",
+                password_hash=hash_password(seed_password),  # Argon2, own random salt per user
+                role=UserRole.AGENT if i == 0 else UserRole.EMPLOYEE,
+            )
             for i in range(8)
         ]
         db.add_all(users)
@@ -85,6 +102,7 @@ def seed() -> None:
             )
         db.commit()
         print(f"Seeded {len(users)} users, {len(tickets)} tickets, 20 comments.")
+        print("Log in as user0@example.com (AGENT) or user1..user7@example.com (EMPLOYEE).")
 
 
 if __name__ == "__main__":

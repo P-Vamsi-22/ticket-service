@@ -8,3 +8,8 @@ wheels/
 
 # Virtual environments
 .venv
+
+# Day 12: secrets and local data never go into git
+.env
+ticket.db
+*.db

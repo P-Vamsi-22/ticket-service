@@ -1,64 +1,44 @@
 import pytest
 
+from tests.conftest import new_ticket
+
 
 @pytest.fixture()
-def setup(client):
-    user = client.post("/users", json={"name": "Ada", "email": "ada@example.com"}).json()
-    ticket = client.post(
-        "/tickets",
-        json={"title": "Bug", "description": "x", "created_by": user["id"]},
-    ).json()
-    return user["id"], ticket["id"]
+def ticket_id(client, ada):
+    return new_ticket(client, ada)["id"]
 
 
-def test_create_and_list_comments(client, setup):
-    author_id, ticket_id = setup
+def test_create_and_list_comments(client, ada, ticket_id):
     resp = client.post(
-        f"/tickets/{ticket_id}/comments",
-        json={"author_id": author_id, "body": "Looking into it"},
+        f"/tickets/{ticket_id}/comments", json={"body": "Looking into it"}, headers=ada.headers
     )
     assert resp.status_code == 201
-    assert resp.json()["body"] == "Looking into it"
-
-    resp = client.get(f"/tickets/{ticket_id}/comments")
-    assert resp.status_code == 200
-    comments = resp.json()
+    comments = client.get(f"/tickets/{ticket_id}/comments", headers=ada.headers).json()
     assert len(comments) == 1
-    assert comments[0]["author_id"] == author_id
+    assert comments[0]["author_id"] == ada.id
 
 
-def test_comment_ticket_not_found(client, setup):
-    author_id, _ = setup
+def test_author_id_in_body_is_ignored(client, ada, bob, agent, ticket_id):
     resp = client.post(
-        "/tickets/999/comments",
-        json={"author_id": author_id, "body": "hi"},
+        f"/tickets/{ticket_id}/comments",
+        json={"body": "hi", "author_id": bob.id},
+        headers=agent.headers,
     )
+    assert resp.status_code == 201
+    assert resp.json()["author_id"] == agent.id
+
+
+def test_comment_ticket_not_found(client, ada):
+    resp = client.post("/tickets/999/comments", json={"body": "hi"}, headers=ada.headers)
     assert resp.status_code == 404
 
 
-def test_comment_author_not_found(client, setup):
-    _, ticket_id = setup
-    resp = client.post(
-        f"/tickets/{ticket_id}/comments",
-        json={"author_id": 999, "body": "hi"},
-    )
-    assert resp.status_code == 404
-
-
-def test_comment_empty_body(client, setup):
-    author_id, ticket_id = setup
-    resp = client.post(
-        f"/tickets/{ticket_id}/comments",
-        json={"author_id": author_id, "body": ""},
-    )
+def test_comment_empty_body(client, ada, ticket_id):
+    resp = client.post(f"/tickets/{ticket_id}/comments", json={"body": ""}, headers=ada.headers)
     assert resp.status_code == 422
 
 
-def test_delete_ticket_cascades_comments(client, setup):
-    author_id, ticket_id = setup
-    client.post(
-        f"/tickets/{ticket_id}/comments",
-        json={"author_id": author_id, "body": "note"},
-    )
-    client.delete(f"/tickets/{ticket_id}")
-    assert client.get(f"/tickets/{ticket_id}/comments").status_code == 404
+def test_delete_ticket_cascades_comments(client, ada, agent, ticket_id):
+    client.post(f"/tickets/{ticket_id}/comments", json={"body": "note"}, headers=ada.headers)
+    assert client.delete(f"/tickets/{ticket_id}", headers=agent.headers).status_code == 204
+    assert client.get(f"/tickets/{ticket_id}/comments", headers=agent.headers).status_code == 404
